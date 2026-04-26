@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "872425543744",
+    "project_id": "roomcraft-ai-c4bf7",
+    "storage_bucket": "roomcraft-ai-c4bf7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:872425543744:android:7a062bc56ceebd214d67a5",
+        "android_client_info": {
+          "package_name": "com.example.roomcraft_ai"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDOyD0zpYojSnz2EDi0su_YeSyByUIqQTk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
