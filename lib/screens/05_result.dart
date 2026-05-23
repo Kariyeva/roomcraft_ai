@@ -99,24 +99,39 @@ class ResultScreen extends StatelessWidget {
                     fit: StackFit.expand,
                     children: [
                       hasImage
-                          ? Image.file(
-                              File(imagePath),
-                              fit: BoxFit.cover,
-                              color: overlayColor,
-                              colorBlendMode: BlendMode.softLight,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  color: const Color(0xFFE9EEF6),
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.image,
-                                      size: 64,
-                                      color: Color(0xFFB8C4D6),
-                                    ),
-                                  ),
-                                );
-                              },
-                            )
+                          ? (imagePath.startsWith('http')
+                                ? Image.network(
+                                    imagePath,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Container(
+                                        color: const Color(0xFFE9EEF6),
+                                        child: const Center(
+                                          child: Icon(
+                                            Icons.broken_image,
+                                            size: 64,
+                                            color: Color(0xFFB8C4D6),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : Image.file(
+                                    File(imagePath),
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Container(
+                                        color: const Color(0xFFE9EEF6),
+                                        child: const Center(
+                                          child: Icon(
+                                            Icons.image,
+                                            size: 64,
+                                            color: Color(0xFFB8C4D6),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ))
                           : Container(
                               color: const Color(0xFFE9EEF6),
                               child: const Center(

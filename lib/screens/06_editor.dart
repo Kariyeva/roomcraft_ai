@@ -76,7 +76,7 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   Future<void> _pickImage() async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'heic'],
     );

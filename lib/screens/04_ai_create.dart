@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 class AiCreateScreen extends StatefulWidget {
   const AiCreateScreen({super.key});
@@ -14,6 +17,7 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
   String? selectedStyle;
   File? selectedImage;
   bool _restoredArgs = false;
+  bool isGenerating = false;
 
   final TextEditingController promptController = TextEditingController();
 
@@ -48,7 +52,9 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
     final String? style = args?['style'] as String?;
     final String? prompt = args?['prompt'] as String?;
 
-    if (imagePath != null && imagePath.isNotEmpty) {
+    if (imagePath != null &&
+        imagePath.isNotEmpty &&
+        !imagePath.startsWith('http')) {
       selectedImage = File(imagePath);
     }
 
@@ -62,7 +68,7 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
   }
 
   Future<void> _pickImage() async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'heic'],
     );
@@ -84,6 +90,7 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
 
   void _appendPrompt(String text) {
     final current = promptController.text.trim();
+
     setState(() {
       promptController.text = current.isEmpty ? text : '$current, $text';
       promptController.selection = TextSelection.fromPosition(
@@ -92,10 +99,101 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
     });
   }
 
+  Future<void> _generateDesign() async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null || user.isAnonymous) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Войдите в аккаунт, чтобы использовать ИИ'),
+        ),
+      );
+      return;
+    }
+
+    if (selectedImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Сначала загрузите фото комнаты')),
+      );
+      return;
+    }
+
+    setState(() {
+      isGenerating = true;
+    });
+
+    try {
+      final uri = Uri.parse('http://10.0.2.2:3000/generate-room');
+
+      final request = http.MultipartRequest('POST', uri);
+
+      request.files.add(
+        await http.MultipartFile.fromPath('image', selectedImage!.path),
+      );
+
+      request.fields['prompt'] = promptController.text.trim();
+      request.fields['style'] = selectedStyle ?? '';
+      request.fields['userId'] = user.uid;
+
+      final response = await request.send();
+      final responseData = await response.stream.bytesToString();
+
+      Map<String, dynamic> decoded = {};
+
+      if (responseData.isNotEmpty) {
+        decoded = jsonDecode(responseData) as Map<String, dynamic>;
+      }
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        Navigator.pushNamed(
+          context,
+          '/result',
+          arguments: {
+            'imagePath': decoded['imageUrl'],
+            'style': selectedStyle,
+            'prompt': promptController.text.trim(),
+          },
+        );
+      } else if (response.statusCode == 403) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Лимит генераций исчерпан')),
+        );
+      } else if (response.statusCode == 401) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Войдите в аккаунт')));
+      } else {
+        final message = decoded['error'] ?? 'Ошибка генерации';
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message.toString())));
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка генерации: $e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          isGenerating = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final Color previewAccent = _accentColor(selectedStyle);
     final Color previewOverlay = _overlayColor(selectedStyle);
+
+    final bool canGenerate =
+        selectedImage != null &&
+        !isGenerating &&
+        (selectedStyle != null || promptController.text.trim().isNotEmpty);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
@@ -134,10 +232,9 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
             ],
           ),
           const SizedBox(height: 12),
-
           if (selectedImage == null)
             InkWell(
-              onTap: _pickImage,
+              onTap: isGenerating ? null : _pickImage,
               borderRadius: BorderRadius.circular(22),
               child: Container(
                 padding: const EdgeInsets.all(22),
@@ -253,7 +350,7 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: _removeImage,
+                          onPressed: isGenerating ? null : _removeImage,
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: Color(0xFFDBE4F0)),
                             shape: RoundedRectangleBorder(
@@ -277,7 +374,7 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: _pickImage,
+                          onPressed: isGenerating ? null : _pickImage,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2E90FA),
                             shape: RoundedRectangleBorder(
@@ -297,15 +394,12 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
                 ],
               ),
             ),
-
           const SizedBox(height: 20),
-
           const Text(
             "2. Опишите интерьер",
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 10),
-
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -314,6 +408,7 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
             ),
             child: TextField(
               controller: promptController,
+              enabled: !isGenerating,
               maxLines: 3,
               decoration: const InputDecoration(
                 hintText:
@@ -327,9 +422,7 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
               },
             ),
           ),
-
           const SizedBox(height: 10),
-
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -354,15 +447,12 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 22),
-
           const Text(
             "3. Выберите стиль",
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 12),
-
           Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -373,6 +463,8 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
                 text: style,
                 isSelected: isSelected,
                 onTap: () {
+                  if (isGenerating) return;
+
                   setState(() {
                     selectedStyle = style;
                   });
@@ -380,29 +472,12 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
               );
             }).toList(),
           ),
-
           const SizedBox(height: 28),
-
           SizedBox(
             width: double.infinity,
             height: 56,
             child: ElevatedButton.icon(
-              onPressed:
-                  (selectedImage != null &&
-                      (selectedStyle != null ||
-                          promptController.text.trim().isNotEmpty))
-                  ? () {
-                      Navigator.pushNamed(
-                        context,
-                        '/result',
-                        arguments: {
-                          'style': selectedStyle,
-                          'prompt': promptController.text.trim(),
-                          'imagePath': selectedImage!.path,
-                        },
-                      );
-                    }
-                  : null,
+              onPressed: canGenerate ? _generateDesign : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF2E90FA),
                 disabledBackgroundColor: const Color(0xFFBFD9F8),
@@ -410,9 +485,20 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
                   borderRadius: BorderRadius.circular(18),
                 ),
               ),
-              icon: const Icon(Icons.auto_awesome),
+              icon: isGenerating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.auto_awesome),
               label: Text(
-                promptController.text.trim().isNotEmpty
+                isGenerating
+                    ? "Генерируем..."
+                    : promptController.text.trim().isNotEmpty
                     ? "Создать интерьер"
                     : "Сгенерировать дизайн",
                 style: const TextStyle(
