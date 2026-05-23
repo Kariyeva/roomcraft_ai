@@ -123,7 +123,9 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
     });
 
     try {
-      final uri = Uri.parse('http://10.0.2.2:3000/generate-room');
+      final uri = Uri.parse(
+        'https://roomcraft-backend-pugy.onrender.com/generate-room',
+      );
 
       final request = http.MultipartRequest('POST', uri);
 
