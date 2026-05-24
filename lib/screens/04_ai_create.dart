@@ -196,9 +196,6 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
       final response = await request.send();
       final responseData = await response.stream.bytesToString();
 
-      print('RESPONSE STATUS: ${response.statusCode}');
-      print('RESPONSE DATA: $responseData');
-
       Map<String, dynamic> decoded = {};
 
       if (responseData.isNotEmpty) {
