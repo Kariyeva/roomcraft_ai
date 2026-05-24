@@ -203,7 +203,7 @@ If the user asks to add plant, ONLY add plant.
     });
 
     res.json({
-      imageUrl: `${req.protocol}://${req.get("host")}/generated/${fileName}`,
+      imageUrl: `https://${req.get("host")}/generated/${fileName}`,
       fileName,
     });
   } catch (error) {

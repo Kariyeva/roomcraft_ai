@@ -1,11 +1,77 @@
-import 'dart:io';
+import 'dart:io' show File;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/saved_works_service.dart';
 
 class ResultScreen extends StatelessWidget {
   const ResultScreen({super.key});
+
+  Widget _buildResultImage({
+    required bool hasImage,
+    required String? imagePath,
+  }) {
+    if (!hasImage || imagePath == null) {
+      return Container(
+        color: const Color(0xFFE9EEF6),
+        child: const Center(
+          child: Icon(Icons.image, size: 64, color: Color(0xFFB8C4D6)),
+        ),
+      );
+    }
+
+    if (imagePath.startsWith('http')) {
+      return Image.network(
+        imagePath,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+
+          return Container(
+            color: const Color(0xFFE9EEF6),
+            child: const Center(
+              child: CircularProgressIndicator(color: Color(0xFF2E90FA)),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            color: const Color(0xFFE9EEF6),
+            child: const Center(
+              child: Icon(
+                Icons.broken_image,
+                size: 64,
+                color: Color(0xFFB8C4D6),
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    if (!kIsWeb) {
+      return Image.file(
+        File(imagePath),
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            color: const Color(0xFFE9EEF6),
+            child: const Center(
+              child: Icon(Icons.image, size: 64, color: Color(0xFFB8C4D6)),
+            ),
+          );
+        },
+      );
+    }
+
+    return Container(
+      color: const Color(0xFFE9EEF6),
+      child: const Center(
+        child: Icon(Icons.image, size: 64, color: Color(0xFFB8C4D6)),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +99,6 @@ class ResultScreen extends StatelessWidget {
     final String mode = isManual ? 'Ручной режим' : 'ИИ дизайн комнаты';
 
     final Color accentColor = _accentColor(selectedStyle);
-    final Color overlayColor = _overlayColor(selectedStyle);
     final String description = _descriptionText(selectedStyle, prompt);
 
     final now = DateTime.now();
@@ -98,51 +163,10 @@ class ResultScreen extends StatelessWidget {
                   return Stack(
                     fit: StackFit.expand,
                     children: [
-                      hasImage
-                          ? (imagePath.startsWith('http')
-                                ? Image.network(
-                                    imagePath,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        color: const Color(0xFFE9EEF6),
-                                        child: const Center(
-                                          child: Icon(
-                                            Icons.broken_image,
-                                            size: 64,
-                                            color: Color(0xFFB8C4D6),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  )
-                                : Image.file(
-                                    File(imagePath),
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        color: const Color(0xFFE9EEF6),
-                                        child: const Center(
-                                          child: Icon(
-                                            Icons.image,
-                                            size: 64,
-                                            color: Color(0xFFB8C4D6),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ))
-                          : Container(
-                              color: const Color(0xFFE9EEF6),
-                              child: const Center(
-                                child: Icon(
-                                  Icons.image,
-                                  size: 64,
-                                  color: Color(0xFFB8C4D6),
-                                ),
-                              ),
-                            ),
-
+                      _buildResultImage(
+                        hasImage: hasImage,
+                        imagePath: imagePath,
+                      ),
                       if (isManual)
                         ...placedItems.map((item) {
                           final double rawX =
@@ -424,7 +448,6 @@ class ResultScreen extends StatelessWidget {
                           dateLabel: dateLabel,
                           prompt: prompt,
                           description: description,
-
                           placedItems: placedItems,
                         ),
                       );
@@ -567,29 +590,6 @@ class ResultScreen extends StatelessWidget {
         return const Color(0xFF1F2A37);
       default:
         return const Color(0xFF2E90FA);
-    }
-  }
-
-  static Color _overlayColor(String style) {
-    switch (style) {
-      case 'Minimalist':
-        return const Color(0x80EAF3FF);
-      case 'Modern':
-        return const Color(0x662E90FA);
-      case 'Scandi':
-        return const Color(0x8049A58A);
-      case 'Classic':
-        return const Color(0x66D9B38C);
-      case 'Industrial':
-        return const Color(0x996B7280);
-      case 'Boho':
-        return const Color(0x99D99A63);
-      case 'Loft':
-        return const Color(0x997A5C58);
-      case 'Zen':
-        return const Color(0x807FA37A);
-      default:
-        return Colors.transparent;
     }
   }
 

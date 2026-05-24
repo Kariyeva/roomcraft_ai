@@ -1,8 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show File;
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -16,6 +18,9 @@ class AiCreateScreen extends StatefulWidget {
 class _AiCreateScreenState extends State<AiCreateScreen> {
   String? selectedStyle;
   File? selectedImage;
+  Uint8List? selectedImageBytes;
+  String? selectedImageName;
+
   bool _restoredArgs = false;
   bool isGenerating = false;
 
@@ -52,7 +57,8 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
     final String? style = args?['style'] as String?;
     final String? prompt = args?['prompt'] as String?;
 
-    if (imagePath != null &&
+    if (!kIsWeb &&
+        imagePath != null &&
         imagePath.isNotEmpty &&
         !imagePath.startsWith('http')) {
       selectedImage = File(imagePath);
@@ -68,21 +74,61 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
   }
 
   Future<void> _pickImage() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['jpg', 'jpeg', 'png', 'heic'],
-    );
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+        allowMultiple: false,
+      );
 
-    if (result != null && result.files.single.path != null) {
-      setState(() {
-        selectedImage = File(result.files.single.path!);
-      });
+      if (result == null) return;
+
+      final file = result.files.single;
+
+      if (kIsWeb) {
+        if (file.bytes == null || file.bytes!.isEmpty) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Файл не загрузился. Выберите JPG или PNG'),
+            ),
+          );
+          return;
+        }
+
+        setState(() {
+          selectedImageBytes = file.bytes!;
+          selectedImageName = file.name;
+          selectedImage = null;
+        });
+      } else {
+        if (file.path == null) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Не удалось получить путь к файлу')),
+          );
+          return;
+        }
+
+        setState(() {
+          selectedImage = File(file.path!);
+          selectedImageBytes = null;
+          selectedImageName = file.name;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка выбора файла: $e')));
     }
   }
 
   void _removeImage() {
     setState(() {
       selectedImage = null;
+      selectedImageBytes = null;
+      selectedImageName = null;
       selectedStyle = null;
       promptController.clear();
     });
@@ -111,7 +157,7 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
       return;
     }
 
-    if (selectedImage == null) {
+    if (selectedImage == null && selectedImageBytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Сначала загрузите фото комнаты')),
       );
@@ -129,9 +175,19 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
 
       final request = http.MultipartRequest('POST', uri);
 
-      request.files.add(
-        await http.MultipartFile.fromPath('image', selectedImage!.path),
-      );
+      if (kIsWeb) {
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'image',
+            selectedImageBytes!,
+            filename: selectedImageName ?? 'room.jpg',
+          ),
+        );
+      } else {
+        request.files.add(
+          await http.MultipartFile.fromPath('image', selectedImage!.path),
+        );
+      }
 
       request.fields['prompt'] = promptController.text.trim();
       request.fields['style'] = selectedStyle ?? '';
@@ -139,6 +195,9 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
 
       final response = await request.send();
       final responseData = await response.stream.bytesToString();
+
+      print('RESPONSE STATUS: ${response.statusCode}');
+      print('RESPONSE DATA: $responseData');
 
       Map<String, dynamic> decoded = {};
 
@@ -191,9 +250,10 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
   Widget build(BuildContext context) {
     final Color previewAccent = _accentColor(selectedStyle);
     final Color previewOverlay = _overlayColor(selectedStyle);
+    final bool hasImage = selectedImage != null || selectedImageBytes != null;
 
     final bool canGenerate =
-        selectedImage != null &&
+        hasImage &&
         !isGenerating &&
         (selectedStyle != null || promptController.text.trim().isNotEmpty);
 
@@ -234,7 +294,7 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          if (selectedImage == null)
+          if (!hasImage)
             InkWell(
               onTap: isGenerating ? null : _pickImage,
               borderRadius: BorderRadius.circular(22),
@@ -281,14 +341,23 @@ class _AiCreateScreenState extends State<AiCreateScreen> {
                     borderRadius: BorderRadius.circular(18),
                     child: Stack(
                       children: [
-                        Image.file(
-                          selectedImage!,
-                          width: double.infinity,
-                          height: 220,
-                          fit: BoxFit.cover,
-                          color: previewOverlay,
-                          colorBlendMode: BlendMode.softLight,
-                        ),
+                        kIsWeb
+                            ? Image.memory(
+                                selectedImageBytes!,
+                                width: double.infinity,
+                                height: 220,
+                                fit: BoxFit.cover,
+                                color: previewOverlay,
+                                colorBlendMode: BlendMode.softLight,
+                              )
+                            : Image.file(
+                                selectedImage!,
+                                width: double.infinity,
+                                height: 220,
+                                fit: BoxFit.cover,
+                                color: previewOverlay,
+                                colorBlendMode: BlendMode.softLight,
+                              ),
                         if (selectedStyle != null)
                           Positioned(
                             top: 12,
