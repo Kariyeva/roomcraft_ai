@@ -83,18 +83,6 @@ async function outputToBuffer(output) {
     return Buffer.from(arrayBuffer);
   }
 
-  if (output?.url && typeof output.url === "string") {
-    const imageResponse = await fetch(output.url);
-    const arrayBuffer = await imageResponse.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  }
-
-  if (output?.image) {
-    const imageResponse = await fetch(output.image);
-    const arrayBuffer = await imageResponse.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  }
-
   throw new Error("Unsupported Replicate output format");
 }
 
@@ -102,23 +90,85 @@ app.get("/", (req, res) => {
   res.json({ message: "RoomCraft AI backend running with Replicate" });
 });
 
+function buildStrictPrompt(userPrompt, style) {
+  const cleanPrompt = userPrompt.trim();
+
+  const fallbackPrompt =
+    "Improve the room interior conservatively while preserving the original layout and structure.";
+
+  const styleInstruction =
+    style && style.trim() && style !== "interior design"
+      ? `Apply ONLY the visual aesthetic of "${style}" without changing room structure or unrelated objects.`
+      : "";
+
+  return `
+You are a precision interior image editing AI.
+
+THIS IS AN IMAGE EDIT TASK.
+NOT a full redesign.
+NOT a creative reinterpretation.
+
+PRIMARY USER REQUEST:
+${cleanPrompt || fallbackPrompt}
+
+STYLE:
+${styleInstruction}
+
+STRICT RULES:
+1. Edit ONLY what the user explicitly requested.
+2. Preserve the original room layout exactly.
+3. Preserve camera angle exactly.
+4. Preserve perspective exactly.
+5. Preserve room proportions exactly.
+6. Preserve wall positions.
+7. Preserve windows unless explicitly requested.
+8. Preserve curtains unless explicitly requested.
+9. Preserve flooring unless explicitly requested.
+10. Preserve rugs unless explicitly requested.
+11. Preserve tables unless explicitly requested.
+12. Preserve shelves unless explicitly requested.
+13. Preserve lighting unless explicitly requested.
+14. Preserve ceiling unless explicitly requested.
+15. Preserve architectural structure.
+16. Do NOT add extra objects.
+17. Do NOT remove unrelated objects.
+18. Do NOT invent decorative changes.
+19. Do NOT redesign the entire room.
+20. Apply the SMALLEST precise edit necessary.
+
+INTERPRETATION RULES:
+- "make lighter" = lighting/color tone only
+- "modern" = modern styling only
+- "replace sofa" = replace sofa only
+- "add plant" = add plant only
+- "change wall color" = only wall color
+- "new table" = replace only table
+
+FINAL COMMAND:
+Generate a photorealistic edited version of the exact uploaded room photo with only the requested modifications.
+`;
+}
+
 app.post("/generate-room", upload.single("image"), async (req, res) => {
   console.log("Запрос пришел");
   console.log("body:", req.body);
-  console.log("file:", req.file ? req.file.path : "no file");
 
   try {
     const imageFile = req.file;
     const prompt = req.body.prompt || "";
-    const style = req.body.style || "interior design";
+    const style = req.body.style || "";
     const userId = req.body.userId;
 
     if (!userId) {
-      return res.status(401).json({ error: "User not authenticated" });
+      return res.status(401).json({
+        error: "User not authenticated",
+      });
     }
 
     if (!imageFile) {
-      return res.status(400).json({ error: "Image is required" });
+      return res.status(400).json({
+        error: "Image is required",
+      });
     }
 
     const userRef = db.collection("users").doc(userId);
@@ -132,62 +182,29 @@ app.post("/generate-room", upload.single("image"), async (req, res) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     } else {
-      const userData = userDoc.data();
-      currentCount = userData.aiGenerations || 0;
+      currentCount = userDoc.data().aiGenerations || 0;
     }
 
-    const inputImage = fileToDataUri(imageFile.path, imageFile.mimetype);
+    const inputImage = fileToDataUri(
+      imageFile.path,
+      imageFile.mimetype
+    );
 
-    const userPrompt = prompt.trim().isEmpty
-      ? "Redesign the room with visible modern interior improvements"
-      : prompt.trim();
+    const finalPrompt = buildStrictPrompt(prompt, style);
 
-    const finalPrompt = `
-THIS IS AN IMAGE EDIT TASK, NOT A REDESIGN TASK.
+    console.log("Sending request to FLUX Kontext Pro...");
 
-Edit the uploaded room photo.
-
-User request:
-${prompt}
-
-Style:
-${style}
-
-STRICT INSTRUCTIONS:
-- Modify ONLY the exact objects mentioned in the user request.
-- DO NOT redesign the whole room.
-- DO NOT change walls.
-- DO NOT change wall color.
-- DO NOT change floor.
-- DO NOT change rug.
-- DO NOT change table.
-- DO NOT change shelves.
-- DO NOT change lighting.
-- DO NOT change window.
-- DO NOT change curtains.
-- DO NOT change room size.
-- DO NOT change camera angle.
-- DO NOT change perspective.
-- Keep the original photo composition exactly.
-- Preserve realism.
-- Only apply minimal targeted edits.
-
-If the user asks to replace sofa, ONLY replace sofa.
-If the user asks to add plant, ONLY add plant.
-`;
-
-    console.log("Отправляем запрос в Replicate FLUX Kontext Pro...");
-
-    const output = await replicate.run("black-forest-labs/flux-kontext-pro", {
-      input: {
-        prompt: finalPrompt,
-        input_image: inputImage,
-        output_format: "png",
-        aspect_ratio: "match_input_image",
-      },
-    });
-
-    console.log("Replicate output received");
+    const output = await replicate.run(
+      "black-forest-labs/flux-kontext-pro",
+      {
+        input: {
+          prompt: finalPrompt,
+          input_image: inputImage,
+          output_format: "png",
+          aspect_ratio: "match_input_image",
+        },
+      }
+    );
 
     const outputBuffer = await outputToBuffer(output);
 
@@ -209,7 +226,7 @@ If the user asks to add plant, ONLY add plant.
   } catch (error) {
     console.error("AI generation error:", error);
 
-    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+    if (req.file?.path && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
 
@@ -221,5 +238,5 @@ If the user asks to add plant, ONLY add plant.
 });
 
 app.listen(port, () => {
-  console.log(`RoomCraft AI backend running on http://localhost:${port}`);
+  console.log(`RoomCraft AI backend running on port ${port}`);
 });

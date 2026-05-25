@@ -1,1 +1,39 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"roomcraft-ai-c4bf7","appId":"1:872425543744:android:7a062bc56ceebd214d67a5","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"roomcraft-ai-c4bf7","configurations":{"android":"1:872425543744:android:7a062bc56ceebd214d67a5","ios":"1:872425543744:ios:2f0d1759a627e9b94d67a5","macos":"1:872425543744:ios:2f0d1759a627e9b94d67a5","web":"1:872425543744:web:c7eaf85b76ed65454d67a5","windows":"1:872425543744:web:842b9bf696a25f024d67a5"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "roomcraft-ai-c4bf7",
+          "appId": "1:872425543744:android:7a062bc56ceebd214d67a5",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "roomcraft-ai-c4bf7",
+          "configurations": {
+            "android": "1:872425543744:android:7a062bc56ceebd214d67a5",
+            "ios": "1:872425543744:ios:2f0d1759a627e9b94d67a5",
+            "macos": "1:872425543744:ios:2f0d1759a627e9b94d67a5",
+            "web": "1:872425543744:web:c7eaf85b76ed65454d67a5",
+            "windows": "1:872425543744:web:842b9bf696a25f024d67a5"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
