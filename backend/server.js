@@ -94,58 +94,91 @@ function buildStrictPrompt(userPrompt, style) {
   const cleanPrompt = userPrompt.trim();
 
   const fallbackPrompt =
-    "Improve the room interior conservatively while preserving the original layout and structure.";
+    "Make conservative interior edits while preserving the original room exactly.";
 
   const styleInstruction =
     style && style.trim() && style !== "interior design"
-      ? `Apply ONLY the visual aesthetic of "${style}" without changing room structure or unrelated objects.`
+      ? `Apply ONLY the visual aesthetic of "${style}" to the requested object(s) only.`
       : "";
 
   return `
-You are a precision interior image editing AI.
+IMAGE EDITING TASK.
 
-THIS IS AN IMAGE EDIT TASK.
-NOT a full redesign.
-NOT a creative reinterpretation.
+This is NOT a redesign.
+This is NOT a redecoration.
+This is NOT a room transformation.
+This is NOT a creative reinterpretation.
 
-PRIMARY USER REQUEST:
+You MUST preserve the uploaded room photo exactly.
+
+USER REQUEST:
 ${cleanPrompt || fallbackPrompt}
 
 STYLE:
 ${styleInstruction}
 
-STRICT RULES:
-1. Edit ONLY what the user explicitly requested.
-2. Preserve the original room layout exactly.
-3. Preserve camera angle exactly.
-4. Preserve perspective exactly.
-5. Preserve room proportions exactly.
-6. Preserve wall positions.
-7. Preserve windows unless explicitly requested.
-8. Preserve curtains unless explicitly requested.
-9. Preserve flooring unless explicitly requested.
-10. Preserve rugs unless explicitly requested.
-11. Preserve tables unless explicitly requested.
-12. Preserve shelves unless explicitly requested.
-13. Preserve lighting unless explicitly requested.
-14. Preserve ceiling unless explicitly requested.
-15. Preserve architectural structure.
-16. Do NOT add extra objects.
-17. Do NOT remove unrelated objects.
-18. Do NOT invent decorative changes.
-19. Do NOT redesign the entire room.
-20. Apply the SMALLEST precise edit necessary.
+CRITICAL RULES:
 
-INTERPRETATION RULES:
-- "make lighter" = lighting/color tone only
-- "modern" = modern styling only
-- "replace sofa" = replace sofa only
-- "add plant" = add plant only
-- "change wall color" = only wall color
-- "new table" = replace only table
+1. ONLY modify the exact object(s) explicitly requested by the user.
+
+2. EVERYTHING ELSE MUST REMAIN IDENTICAL:
+- same walls
+- same wall color
+- same floor
+- same carpet
+- same lighting
+- same shadows
+- same brightness
+- same exposure
+- same curtains
+- same window
+- same decorations
+- same shelves
+- same table
+- same plants
+- same room layout
+- same composition
+- same camera angle
+- same perspective
+- same proportions
+- same architecture
+
+3. DO NOT beautify the room.
+4. DO NOT improve the room unless explicitly requested.
+5. DO NOT redesign the room.
+6. DO NOT add extra furniture unless explicitly requested.
+7. DO NOT remove objects unless explicitly requested.
+8. DO NOT change room mood.
+9. DO NOT change colors of unrelated objects.
+10. Preserve photorealism.
+11. Apply the SMALLEST precise edit necessary.
+
+INTERPRETATION EXAMPLES:
+
+If user says:
+"make sofa red"
+→ ONLY change sofa color to red
+
+If user says:
+"make sofa smaller"
+→ ONLY reduce sofa size
+
+If user says:
+"replace sofa"
+→ ONLY replace sofa
+
+If user says:
+"add plant"
+→ ONLY add plant
+
+If user says:
+"change wall color"
+→ ONLY change wall color
+
+STRICTLY FOLLOW USER REQUEST ONLY.
 
 FINAL COMMAND:
-Generate a photorealistic edited version of the exact uploaded room photo with only the requested modifications.
+Generate a photorealistic edited version of the EXACT uploaded room photo with ONLY the requested modifications.
 `;
 }
 
