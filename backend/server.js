@@ -231,11 +231,13 @@ app.post("/generate-room", upload.single("image"), async (req, res) => {
       "black-forest-labs/flux-kontext-pro",
       {
         input: {
-          prompt: finalPrompt,
-          input_image: inputImage,
-          output_format: "png",
-          aspect_ratio: "match_input_image",
-        },
+  prompt: finalPrompt,
+  input_image: inputImage,
+  output_format: "png",
+  aspect_ratio: "match_input_image",
+  prompt_strength: 0.35,
+  guidance_scale: 12,
+},
       }
     );
 
