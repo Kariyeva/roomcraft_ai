@@ -1,6 +1,9 @@
-import 'dart:io';
+import 'dart:io' show File;
+import 'dart:typed_data';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class EditorScreen extends StatefulWidget {
@@ -13,6 +16,8 @@ class EditorScreen extends StatefulWidget {
 class _EditorScreenState extends State<EditorScreen> {
   String selectedTab = 'Мебель';
   File? selectedImage;
+  Uint8List? selectedImageBytes;
+  String? selectedImageName;
   final List<_PlacedItem> placedItems = [];
   bool _restoredArgs = false;
 
@@ -77,21 +82,31 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Future<void> _pickImage() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['jpg', 'jpeg', 'png', 'heic'],
+      type: FileType.image,
+      withData: true,
     );
 
-    if (result != null && result.files.single.path != null) {
-      setState(() {
-        selectedImage = File(result.files.single.path!);
-        placedItems.clear();
-      });
-    }
+    if (result == null) return;
+
+    final file = result.files.single;
+
+    setState(() {
+      if (!kIsWeb && file.path != null) {
+        selectedImage = File(file.path!);
+      }
+
+      selectedImageBytes = file.bytes;
+      selectedImageName = file.name;
+
+      placedItems.clear();
+    });
   }
 
   void _removeImage() {
     setState(() {
       selectedImage = null;
+      selectedImageBytes = null;
+      selectedImageName = null;
       placedItems.clear();
     });
   }
@@ -157,7 +172,9 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   Widget build(BuildContext context) {
     final currentItems = itemsByTab[selectedTab] ?? [];
-    final bool canSave = selectedImage != null && placedItems.isNotEmpty;
+    final bool canSave =
+        (selectedImage != null || selectedImageBytes != null) &&
+        placedItems.isNotEmpty;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
@@ -191,7 +208,7 @@ class _EditorScreenState extends State<EditorScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(26),
               ),
-              child: selectedImage == null
+              child: selectedImage == null && selectedImageBytes == null
                   ? InkWell(
                       onTap: _pickImage,
                       borderRadius: BorderRadius.circular(26),
@@ -237,10 +254,15 @@ class _EditorScreenState extends State<EditorScreen> {
                           return Stack(
                             children: [
                               Positioned.fill(
-                                child: Image.file(
-                                  selectedImage!,
-                                  fit: BoxFit.cover,
-                                ),
+                                child: kIsWeb
+                                    ? Image.memory(
+                                        selectedImageBytes!,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : Image.file(
+                                        selectedImage!,
+                                        fit: BoxFit.cover,
+                                      ),
                               ),
                               Positioned(
                                 top: 12,
@@ -344,7 +366,9 @@ class _EditorScreenState extends State<EditorScreen> {
                               '/result',
                               arguments: {
                                 'style': 'Ручной режим',
-                                'imagePath': selectedImage!.path,
+                                'imagePath': selectedImage?.path,
+                                'imageBytes': selectedImageBytes,
+                                'imageName': selectedImageName,
                                 'placedItems': _buildPlacedItemsArgs(),
                               },
                             );
