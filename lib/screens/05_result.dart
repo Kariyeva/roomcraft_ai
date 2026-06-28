@@ -1,17 +1,38 @@
-import 'dart:io' show File;
+import 'dart:html' as html;
+import 'dart:convert';
+import 'dart:io' show File, Platform;
+import 'package:file_selector/file_selector.dart';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:gal/gal.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../services/saved_works_service.dart';
 
-class ResultScreen extends StatelessWidget {
+class ResultScreen extends StatefulWidget {
   const ResultScreen({super.key});
+
+  @override
+  State<ResultScreen> createState() => _ResultScreenState();
+}
+
+class _ResultScreenState extends State<ResultScreen> {
+  final GlobalKey _resultImageKey = GlobalKey();
+  bool _isSaving = false;
 
   Widget _buildResultImage({
     required bool hasImage,
     required String? imagePath,
+    required Uint8List? imageBytes,
   }) {
+    if (imageBytes != null && imageBytes.isNotEmpty) {
+      return Image.memory(imageBytes, fit: BoxFit.cover);
+    }
+
     if (!hasImage || imagePath == null) {
       return Container(
         color: const Color(0xFFE9EEF6),
@@ -73,6 +94,128 @@ class ResultScreen extends StatelessWidget {
     );
   }
 
+  Future<Uint8List?> _captureResultImage() async {
+    try {
+      final boundary =
+          _resultImageKey.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
+
+      if (boundary == null) return null;
+
+      final image = await boundary.toImage(pixelRatio: 3);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+
+      return byteData?.buffer.asUint8List();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _saveBytesToLocalFile(Uint8List bytes) async {
+    if (kIsWeb) return null;
+
+    final directory = await getApplicationDocumentsDirectory();
+    final fileName = 'roomcraft_${DateTime.now().millisecondsSinceEpoch}.png';
+    final file = File('${directory.path}/$fileName');
+
+    await file.writeAsBytes(bytes);
+    return file.path;
+  }
+
+  Future<void> _saveToDeviceGallery(Uint8List bytes) async {
+    final fileName = 'roomcraft_${DateTime.now().millisecondsSinceEpoch}.png';
+
+    if (kIsWeb) {
+      throw Exception('Для Web сохранение сделаем после хостинга');
+    }
+
+    if (Platform.isIOS || Platform.isAndroid) {
+      await Gal.putImageBytes(bytes, album: 'RoomCraft AI');
+      return;
+    }
+
+    if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+      final location = await getSaveLocation(
+        suggestedName: fileName,
+        acceptedTypeGroups: [
+          const XTypeGroup(label: 'PNG image', extensions: ['png']),
+        ],
+      );
+
+      if (location == null) return;
+
+      final file = File(location.path);
+      await file.writeAsBytes(bytes);
+      return;
+    }
+
+    throw Exception('Платформа не поддерживается');
+  }
+
+  Future<void> _saveResult({
+    required BuildContext context,
+    required String? imagePath,
+    required Uint8List? imageBytes,
+    required String selectedStyle,
+    required String mode,
+    required String dateLabel,
+    required String prompt,
+    required String description,
+    required List<Map<String, dynamic>> placedItems,
+  }) async {
+    if (_isSaving) return;
+
+    setState(() => _isSaving = true);
+
+    try {
+      final capturedBytes = await _captureResultImage();
+      final bytesToSave = capturedBytes ?? imageBytes;
+
+      String savedLocalPath = imagePath ?? '';
+
+      if (bytesToSave != null) {
+        final localPath = await _saveBytesToLocalFile(bytesToSave);
+        savedLocalPath = localPath ?? savedLocalPath;
+
+        await _saveToDeviceGallery(bytesToSave);
+      }
+
+      await SavedWorksService.saveWork(
+        SavedWork(
+          imagePath: savedLocalPath,
+          style: selectedStyle,
+          mode: mode,
+          dateLabel: dateLabel,
+          prompt: prompt,
+          description: description,
+          placedItems: placedItems,
+        ),
+      );
+
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            kIsWeb
+                ? 'Работа сохранена в последние работы'
+                : 'Работа сохранена в галерею и последние работы',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Не удалось сохранить: $e')));
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final args =
@@ -87,7 +230,10 @@ class ResultScreen extends StatelessWidget {
     final String prompt = ((args?['prompt'] as String?) ?? '').trim();
 
     final String? imagePath = args?['imagePath'] as String?;
-    final bool hasImage = imagePath != null && imagePath.isNotEmpty;
+    final Uint8List? imageBytes = args?['imageBytes'] as Uint8List?;
+    final bool hasImage =
+        (imagePath != null && imagePath.isNotEmpty) ||
+        (imageBytes != null && imageBytes.isNotEmpty);
 
     final List<Map<String, dynamic>> placedItems =
         (args?['placedItems'] as List?)
@@ -130,7 +276,7 @@ class ResultScreen extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
-          "Результат",
+          'Результат',
           style: TextStyle(
             color: Color(0xFF111827),
             fontWeight: FontWeight.w800,
@@ -140,94 +286,58 @@ class ResultScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Container(
-            height: 340,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(26),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 18,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(26),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final areaWidth = constraints.maxWidth;
-                  final areaHeight = constraints.maxHeight;
+          RepaintBoundary(
+            key: _resultImageKey,
+            child: Container(
+              height: 340,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(26),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 18,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(26),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final areaWidth = constraints.maxWidth;
+                    final areaHeight = constraints.maxHeight;
 
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      _buildResultImage(
-                        hasImage: hasImage,
-                        imagePath: imagePath,
-                      ),
-                      if (isManual)
-                        ...placedItems.map((item) {
-                          final double rawX =
-                              ((item['x'] as num?)?.toDouble() ?? 0.0);
-                          final double rawY =
-                              ((item['y'] as num?)?.toDouble() ?? 0.0);
-
-                          final double x = rawX > 1 ? rawX : rawX * areaWidth;
-                          final double y = rawY > 1 ? rawY : rawY * areaHeight;
-
-                          return Positioned(
-                            left: x.clamp(0.0, areaWidth - 90),
-                            top: y.clamp(0.0, areaHeight - 42),
-                            child: _resultPlacedChip(
-                              title: item['title'] as String,
-                              iconCodePoint: item['iconCodePoint'] as int,
-                            ),
-                          );
-                        }),
-
-                      Positioned(
-                        top: 16,
-                        left: 16,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.92),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                isManual
-                                    ? Icons.edit_outlined
-                                    : Icons.auto_awesome,
-                                size: 18,
-                                color: accentColor,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                mode,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF111827),
-                                ),
-                              ),
-                            ],
-                          ),
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _buildResultImage(
+                          hasImage: hasImage,
+                          imagePath: imagePath,
+                          imageBytes: imageBytes,
                         ),
-                      ),
+                        if (isManual)
+                          ...placedItems.map((item) {
+                            final double rawX =
+                                ((item['x'] as num?)?.toDouble() ?? 0.0);
+                            final double rawY =
+                                ((item['y'] as num?)?.toDouble() ?? 0.0);
 
-                      if (!isManual &&
-                          selectedStyle != 'Не выбран' &&
-                          selectedStyle.isNotEmpty)
+                            final double x = rawX > 1 ? rawX : rawX * areaWidth;
+                            final double y = rawY > 1
+                                ? rawY
+                                : rawY * areaHeight;
+
+                            return Positioned(
+                              left: x.clamp(0.0, areaWidth - 90),
+                              top: y.clamp(0.0, areaHeight - 42),
+                              child: _resultPlacedObject(item: item),
+                            );
+                          }),
+
                         Positioned(
                           top: 16,
-                          right: 16,
+                          left: 16,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 12,
@@ -237,18 +347,57 @@ class ResultScreen extends StatelessWidget {
                               color: Colors.white.withOpacity(0.92),
                               borderRadius: BorderRadius.circular(16),
                             ),
-                            child: Text(
-                              selectedStyle,
-                              style: TextStyle(
-                                color: accentColor,
-                                fontWeight: FontWeight.w800,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  isManual
+                                      ? Icons.edit_outlined
+                                      : Icons.auto_awesome,
+                                  size: 18,
+                                  color: accentColor,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  mode,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF111827),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                    ],
-                  );
-                },
+
+                        if (!isManual &&
+                            selectedStyle != 'Не выбран' &&
+                            selectedStyle.isNotEmpty)
+                          Positioned(
+                            top: 16,
+                            right: 16,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.92),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Text(
+                                selectedStyle,
+                                style: TextStyle(
+                                  color: accentColor,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -276,7 +425,7 @@ class ResultScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        "Ваш новый\nинтерьер",
+                        'Ваш новый\nинтерьер',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -286,10 +435,10 @@ class ResultScreen extends StatelessWidget {
                       const SizedBox(height: 8),
                       Text(
                         isManual
-                            ? "Собрано в режиме\nРучной режим"
+                            ? 'Собрано в режиме\nРучной режим'
                             : selectedStyle != 'Не выбран'
-                            ? "Сгенерировано в стиле\n$selectedStyle"
-                            : "Сгенерировано по вашему\nAI-запросу",
+                            ? 'Сгенерировано в стиле\n$selectedStyle'
+                            : 'Сгенерировано по вашему\nAI-запросу',
                         style: const TextStyle(color: Color(0xFF6B7280)),
                       ),
                       if (prompt.isNotEmpty) ...[
@@ -305,7 +454,7 @@ class ResultScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Text(
-                                "AI-запрос",
+                                'AI-запрос',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
@@ -346,7 +495,7 @@ class ResultScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Text(
-                    "$day\n$month",
+                    '$day\n$month',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
@@ -379,7 +528,7 @@ class ResultScreen extends StatelessWidget {
               ),
               icon: const Icon(Icons.home),
               label: const Text(
-                "На главную",
+                'На главную',
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
@@ -398,6 +547,7 @@ class ResultScreen extends StatelessWidget {
                     '/editor',
                     arguments: {
                       'imagePath': imagePath,
+                      'imageBytes': imageBytes,
                       'placedItems': placedItems,
                     },
                   );
@@ -423,7 +573,7 @@ class ResultScreen extends StatelessWidget {
               ),
               icon: const Icon(Icons.refresh, color: Color(0xFF111827)),
               label: const Text(
-                "Переделать",
+                'Переделать',
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
                   color: Color(0xFF111827),
@@ -438,28 +588,18 @@ class ResultScreen extends StatelessWidget {
             width: double.infinity,
             height: 54,
             child: ElevatedButton(
-              onPressed: hasImage
-                  ? () async {
-                      await SavedWorksService.saveWork(
-                        SavedWork(
-                          imagePath: imagePath,
-                          style: selectedStyle,
-                          mode: mode,
-                          dateLabel: dateLabel,
-                          prompt: prompt,
-                          description: description,
-                          placedItems: placedItems,
-                        ),
-                      );
-
-                      if (!context.mounted) return;
-
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Работа сохранена в последние работы'),
-                        ),
-                      );
-                    }
+              onPressed: hasImage && !_isSaving
+                  ? () => _saveResult(
+                      context: context,
+                      imagePath: imagePath,
+                      imageBytes: imageBytes,
+                      selectedStyle: selectedStyle,
+                      mode: mode,
+                      dateLabel: dateLabel,
+                      prompt: prompt,
+                      description: description,
+                      placedItems: placedItems,
+                    )
                   : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF2E90FA),
@@ -468,9 +608,9 @@ class ResultScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(18),
                 ),
               ),
-              child: const Text(
-                "Сохранить в галерею",
-                style: TextStyle(fontWeight: FontWeight.w800),
+              child: Text(
+                _isSaving ? 'Сохраняем...' : 'Сохранить в галерею',
+                style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
           ),
@@ -481,7 +621,19 @@ class ResultScreen extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {},
+                  onPressed: hasImage && !_isSaving
+                      ? () => _saveResult(
+                          context: context,
+                          imagePath: imagePath,
+                          imageBytes: imageBytes,
+                          selectedStyle: selectedStyle,
+                          mode: mode,
+                          dateLabel: dateLabel,
+                          prompt: prompt,
+                          description: description,
+                          placedItems: placedItems,
+                        )
+                      : null,
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFFDBE4F0)),
                     shape: RoundedRectangleBorder(
@@ -491,7 +643,7 @@ class ResultScreen extends StatelessWidget {
                   ),
                   icon: const Icon(Icons.download, color: Color(0xFF111827)),
                   label: const Text(
-                    "Скачать",
+                    'Скачать',
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       color: Color(0xFF111827),
@@ -512,7 +664,7 @@ class ResultScreen extends StatelessWidget {
                   ),
                   icon: const Icon(Icons.share, color: Color(0xFF111827)),
                   label: const Text(
-                    "Поделиться",
+                    'Поделиться',
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       color: Color(0xFF111827),
@@ -524,6 +676,44 @@ class ResultScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  static Widget _resultPlacedObject({required Map<String, dynamic> item}) {
+    final String title = (item['title'] ?? '').toString();
+    final int? iconCodePoint = (item['iconCodePoint'] as num?)?.toInt();
+    final String? imagePath = item['imagePath'] as String?;
+    final String? imageBase64 = item['imageBase64'] as String?;
+    final bool isCustom = item['isCustom'] == true;
+    final double scale = ((item['scale'] as num?)?.toDouble() ?? 1.0).clamp(
+      0.3,
+      4.0,
+    );
+    final double rotation = ((item['rotation'] as num?)?.toDouble() ?? 0.0);
+
+    Widget content;
+
+    if (isCustom && imageBase64 != null && imageBase64.isNotEmpty) {
+      content = Image.memory(
+        base64Decode(imageBase64),
+        width: 120,
+        fit: BoxFit.contain,
+      );
+    } else if (isCustom &&
+        imagePath != null &&
+        imagePath.isNotEmpty &&
+        !kIsWeb) {
+      content = Image.file(File(imagePath), width: 120, fit: BoxFit.contain);
+    } else {
+      content = _resultPlacedChip(
+        title: title,
+        iconCodePoint: iconCodePoint ?? Icons.category.codePoint,
+      );
+    }
+
+    return Transform.rotate(
+      angle: rotation,
+      child: Transform.scale(scale: scale, child: content),
     );
   }
 

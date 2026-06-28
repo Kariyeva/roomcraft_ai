@@ -12,7 +12,13 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+
+if (!serviceAccountPath) {
+  throw new Error("FIREBASE_SERVICE_ACCOUNT_PATH is missing in .env");
+}
+
+const serviceAccount = require(path.resolve(__dirname, serviceAccountPath));
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -79,6 +85,18 @@ async function outputToBuffer(output) {
 
   if (typeof output === "string") {
     const imageResponse = await fetch(output);
+    const arrayBuffer = await imageResponse.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  if (output?.url && typeof output.url === "string") {
+    const imageResponse = await fetch(output.url);
+    const arrayBuffer = await imageResponse.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  if (output?.image) {
+    const imageResponse = await fetch(output.image);
     const arrayBuffer = await imageResponse.arrayBuffer();
     return Buffer.from(arrayBuffer);
   }
@@ -218,28 +236,21 @@ app.post("/generate-room", upload.single("image"), async (req, res) => {
       currentCount = userDoc.data().aiGenerations || 0;
     }
 
-    const inputImage = fileToDataUri(
-      imageFile.path,
-      imageFile.mimetype
-    );
-
+    const inputImage = fileToDataUri(imageFile.path, imageFile.mimetype);
     const finalPrompt = buildStrictPrompt(prompt, style);
 
     console.log("Sending request to FLUX Kontext Pro...");
 
-    const output = await replicate.run(
-      "black-forest-labs/flux-kontext-pro",
-      {
-        input: {
-  prompt: finalPrompt,
-  input_image: inputImage,
-  output_format: "png",
-  aspect_ratio: "match_input_image",
-  prompt_strength: 0.35,
-  guidance_scale: 12,
-},
-      }
-    );
+    const output = await replicate.run("black-forest-labs/flux-kontext-pro", {
+      input: {
+        prompt: finalPrompt,
+        input_image: inputImage,
+        output_format: "png",
+        aspect_ratio: "match_input_image",
+        prompt_strength: 0.35,
+        guidance_scale: 12,
+      },
+    });
 
     const outputBuffer = await outputToBuffer(output);
 
@@ -255,7 +266,7 @@ app.post("/generate-room", upload.single("image"), async (req, res) => {
     });
 
     res.json({
-      imageUrl: `https://${req.get("host")}/generated/${fileName}`,
+      imageUrl: `http://${req.get("host")}/generated/${fileName}`,
       fileName,
     });
   } catch (error) {
@@ -267,6 +278,57 @@ app.post("/generate-room", upload.single("image"), async (req, res) => {
 
     res.status(500).json({
       error: "Generation failed",
+      details: error.message,
+    });
+  }
+});
+
+app.post("/remove-background", upload.single("image"), async (req, res) => {
+  try {
+    const imageFile = req.file;
+
+    if (!imageFile) {
+      return res.status(400).json({
+        error: "Image is required",
+      });
+    }
+
+    const inputImage = fileToDataUri(imageFile.path, imageFile.mimetype);
+
+    console.log("Sending request to background remover WITH VERSION...");
+
+    const output = await replicate.run(
+      "851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc",
+      {
+        input: {
+          image: inputImage,
+        },
+      }
+    );
+
+    const outputBuffer = await outputToBuffer(output);
+
+    const fileName = `item_${Date.now()}.png`;
+    const outputPath = path.join(generatedDir, fileName);
+
+    fs.writeFileSync(outputPath, outputBuffer);
+
+    fs.unlinkSync(imageFile.path);
+
+    res.json({
+      imageUrl: `http://${req.get("host")}/generated/${fileName}`,
+      imageBase64: outputBuffer.toString("base64"),
+      fileName,
+    });
+  } catch (error) {
+    console.error("Background removal error:", error);
+
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    res.status(500).json({
+      error: "Background removal failed",
       details: error.message,
     });
   }

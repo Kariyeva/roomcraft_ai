@@ -50,3 +50,6 @@ backend/.env
 backend/generated/
 backend/uploads/
 backend/serviceAccountKey.json
+backend/serviceAccountKey.json
+backend/.env
+.env
